@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>테니스 전략 보드</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #14181d;
+    color: #e8ecf1;
+    font-family: "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    padding: 10px 16px 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 17px; font-weight: 700; }
+  header span { font-size: 12px; color: #8b96a3; }
+  #app {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 12px;
+    padding: 0 12px 12px;
+    min-height: 0;
+  }
+  #toolbar {
+    flex: 0 0 168px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+  .group { display: flex; flex-direction: column; gap: 6px; }
+  .group-label { font-size: 11px; color: #8b96a3; letter-spacing: 1px; }
+  button {
+    font-family: inherit;
+    font-size: 13.5px;
+    color: #e8ecf1;
+    background: #232a32;
+    border: 1px solid #333d48;
+    border-radius: 9px;
+    padding: 9px 10px;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+    white-space: nowrap;
+  }
+  button:hover { background: #2c3540; }
+  button.active { background: #1d5c3f; border-color: #2f9e6a; }
+  #colors { flex-direction: row; flex-wrap: wrap; }
+  .swatch {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    padding: 0;
+    border: 2px solid #333d48;
+  }
+  .swatch.active { border-color: #fff; box-shadow: 0 0 0 2px #2f9e6a; }
+
+  #boardArea {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+  }
+  #tabs {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .tab {
+    padding: 6px 12px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab .x {
+    color: #9fb3a9;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .tab .x:hover { color: #ff8a8a; }
+  #addTab { padding: 6px 11px; font-weight: 700; }
+  #canvasWrap {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+  }
+  canvas {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 10px;
+    box-shadow: 0 6px 28px rgba(0,0,0,.45);
+    touch-action: none;
+  }
+  /* 좁은 화면(휴대폰)에서는 툴바를 위로 */
+  @media (max-width: 640px) {
+    #app { flex-direction: column; }
+    #toolbar {
+      flex: 0 0 auto;
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .group { flex-direction: row; flex-wrap: wrap; }
+    .group-label { display: none; }
+    button { padding: 7px 9px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎾 테니스 전략 보드</h1>
+  <span>선수·공에 마우스를 올리면 선택 → 끌어서 이동 · 탭은 두 번 클릭하면 이름 변경</span>
+</header>
+<div id="app">
+  <div id="toolbar">
+    <div class="group">
+      <div class="group-label">도구</div>
+      <button class="tool active" data-tool="move">✋ 이동</button>
+      <button class="tool" data-tool="pen">✏️ 펜</button>
+      <button class="tool" data-tool="arrow">↗️ 화살표</button>
+      <button class="tool" data-tool="line">➖ 직선</button>
+      <button class="tool" data-tool="serve">🎾 서브</button>
+      <button class="tool" data-tool="return">↩️ 리턴</button>
+      <button class="tool" data-tool="volley">🖐️ 발리</button>
+      <button class="tool" data-tool="smash">💥 스매시</button>
+      <button class="tool" data-tool="rally">🔁 랠리</button>
+      <button class="tool" data-tool="text">🅰️ 텍스트</button>
+      <button class="tool" data-tool="eraser">🧽 지우개</button>
+    </div>
+    <div class="group">
+      <div class="group-label">색상</div>
+      <div class="group" id="colors">
+        <button class="swatch active" data-color="#ffe14d" style="background:#ffe14d"></button>
+        <button class="swatch" data-color="#ff5252" style="background:#ff5252"></button>
+        <button class="swatch" data-color="#4da3ff" style="background:#4da3ff"></button>
+        <button class="swatch" data-color="#ffffff" style="background:#ffffff"></button>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-label">동작</div>
+      <button id="undoBtn">↩️ 되돌리기</button>
+      <button id="clearBtn">🗑️ 그림 모두 지우기</button>
+      <button id="resetBtn">🔄 위치 초기화</button>
+      <button id="modeBtn">👥 복식 ⇄ 단식</button>
+      <button id="angleBtn">📐 샷 각도 표시</button>
+      <button id="saveBtn">💾 이미지로 저장</button>
+    </div>
+  </div>
+  <div id="boardArea">
+    <div id="tabs"></div>
+    <div id="canvasWrap"><canvas id="board"></canvas></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 좌표계: 실제 규격(미터) 기준 ----------
+  var S = 40;                    // 1m = 40px
+  var COURT_W = 10.97;           // 복식 코트 폭
+  var COURT_L = 23.77;           // 코트 길이
+  var SIDE_M = 2.6, END_M = 3.6; // 코트 바깥 여백
+  var OX = SIDE_M * S, OY = END_M * S;
+  var W = Math.round((COURT_W + SIDE_M * 2) * S);
+  var H = Math.round((COURT_L + END_M * 2) * S);
+
+  var canvas = document.getElementById("board");
+  var ctx = canvas.getContext("2d");
+  canvas.width = W;
+  canvas.height = H;
+
+  function mx(m) { return OX + m * S; }
+  function my(m) { return OY + m * S; }
+
+  // ---------- 상태 ----------
+  var tool = "move";
+  var color = "#ffe14d";
+  var LINE_W = 3.5;
+  var strokes = [];
+  var markers = [];
+  var mode = "doubles";
+  var tempStroke = null;
+  var dragTarget = null;
+  var dragEnd = null;      // 끝점 드래그: {s: 선, end: "from"|"to"}
+  var hoverMarker = null;
+  var hoverStroke = null;
+  var hoverEnd = null;
+  var erasing = false;
+  var showAngle = false;
+
+  var PLAYER_R = 0.55 * S;
+  var BALL_R = 0.34 * S;
+
+  function defaultMarkers(m) {
+    if (m === "doubles") {
+      return [
+        { label: "S",  color: "#e5484d", r: PLAYER_R, x: mx(8.3),  y: my(24.6), on: true },
+        { label: "Sp", color: "#e5484d", r: PLAYER_R, x: mx(2.75), y: my(14.6), on: true },
+        { label: "R",  color: "#3b82f6", r: PLAYER_R, x: mx(2.75), y: my(-0.9), on: true },
+        { label: "Rp", color: "#3b82f6", r: PLAYER_R, x: mx(8.3),  y: my(9.2),  on: true },
+        { label: "",   color: "ball",    r: BALL_R,   x: mx(9.3),  y: my(24.4), on: true }
+      ];
+    }
+    return [
+      { label: "S",  color: "#e5484d", r: PLAYER_R, x: mx(5.9),  y: my(24.8), on: true },
+      { label: "Sp", color: "#e5484d", r: PLAYER_R, x: mx(2.75), y: my(14.6), on: false },
+      { label: "R",  color: "#3b82f6", r: PLAYER_R, x: mx(5.1),  y: my(-1.0), on: true },
+      { label: "Rp", color: "#3b82f6", r: PLAYER_R, x: mx(8.3),  y: my(9.2),  on: false },
+      { label: "",   color: "ball",    r: BALL_R,   x: mx(6.7),  y: my(24.6), on: true }
+    ];
+  }
+
+  // ---------- 전략 탭 (localStorage 저장) ----------
+  var STORE_KEY = "tennisStrategyBoard.v1";
+  var boards = [];
+  var activeIdx = 0;
+
+  function newBoard(name) {
+    return { name: name, mode: "doubles", strokes: [], markers: defaultMarkers("doubles") };
+  }
+
+  function loadStore() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        var data = JSON.parse(raw);
+        if (data && data.boards && data.boards.length) {
+          boards = data.boards;
+          activeIdx = Math.min(data.active || 0, boards.length - 1);
+          // 예전 저장분(1·2 라벨)을 S/Sp/R/Rp 표기로 갱신
+          var NEW_LABELS = ["S", "Sp", "R", "Rp", ""];
+          boards.forEach(function (b) {
+            if (b.markers && b.markers.length === 5) {
+              b.markers.forEach(function (mk, i) { mk.label = NEW_LABELS[i]; });
+            }
+          });
+          return;
+        }
+      }
+    } catch (e) { /* 저장소를 못 쓰는 환경이면 기본값 사용 */ }
+    boards = [newBoard("전략 1"), newBoard("전략 2"), newBoard("전략 3")];
+    activeIdx = 0;
+  }
+
+  function persist() {
+    var b = boards[activeIdx];
+    b.strokes = strokes;
+    b.markers = markers;
+    b.mode = mode;
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({ boards: boards, active: activeIdx }));
+    } catch (e) { /* 무시 */ }
+  }
+
+  function activateBoard(i) {
+    activeIdx = i;
+    var b = boards[i];
+    strokes = b.strokes || [];
+    markers = (b.markers && b.markers.length) ? b.markers : defaultMarkers(b.mode || "doubles");
+    mode = b.mode || "doubles";
+    hoverMarker = null;
+    hoverStroke = null;
+    hoverEnd = null;
+    updateModeBtn();
+    renderTabs();
+    render();
+    persist();
+  }
+
+  // ---------- 탭 UI ----------
+  var tabsEl = document.getElementById("tabs");
+
+  function renderTabs() {
+    tabsEl.innerHTML = "";
+    boards.forEach(function (b, i) {
+      var btn = document.createElement("button");
+      btn.className = "tab" + (i === activeIdx ? " active" : "");
+      btn.appendChild(document.createTextNode(b.name));
+
+      if (i === activeIdx && boards.length > 1) {
+        var x = document.createElement("span");
+        x.className = "x";
+        x.textContent = "×";
+        x.title = "이 전략 탭 삭제";
+        x.addEventListener("click", function (e) {
+          e.stopPropagation();
+          if (!confirm('"' + b.name + '" 탭을 삭제할까요?')) return;
+          boards.splice(i, 1);
+          activateBoard(Math.max(0, i - 1));
+        });
+        btn.appendChild(x);
+      }
+
+      btn.addEventListener("click", function () {
+        if (i !== activeIdx) { persist(); activateBoard(i); }
+      });
+      btn.addEventListener("dblclick", function () {
+        var name = prompt("탭 이름을 입력하세요", b.name);
+        if (name && name.trim()) {
+          b.name = name.trim();
+          renderTabs();
+          persist();
+        }
+      });
+      tabsEl.appendChild(btn);
+    });
+
+    var add = document.createElement("button");
+    add.id = "addTab";
+    add.textContent = "＋";
+    add.title = "새 전략 탭 추가";
+    add.addEventListener("click", function () {
+      persist();
+      boards.push(newBoard("전략 " + (boards.length + 1)));
+      activateBoard(boards.length - 1);
+    });
+    tabsEl.appendChild(add);
+  }
+
+  // ---------- 코트 그리기 ----------
+  function drawCourt() {
+    ctx.fillStyle = "#2e7d52";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#3c74a8";
+    ctx.fillRect(mx(0), my(0), COURT_W * S, COURT_L * S);
+
+    ctx.strokeStyle = "#f5f7fa";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "butt";
+
+    function line(x1, y1, x2, y2) {
+      ctx.beginPath();
+      ctx.moveTo(mx(x1), my(y1));
+      ctx.lineTo(mx(x2), my(y2));
+      ctx.stroke();
+    }
+
+    ctx.strokeRect(mx(0), my(0), COURT_W * S, COURT_L * S);
+    line(1.37, 0, 1.37, COURT_L);
+    line(9.60, 0, 9.60, COURT_L);
+    line(1.37, 5.485, 9.60, 5.485);
+    line(1.37, 18.285, 9.60, 18.285);
+    line(5.485, 5.485, 5.485, 18.285);
+    line(5.485, 0, 5.485, 0.2);
+    line(5.485, 23.57, 5.485, 23.77);
+
+    var ny = my(COURT_L / 2);
+    ctx.strokeStyle = "rgba(0,0,0,.55)";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(mx(-0.914), ny);
+    ctx.lineTo(mx(COURT_W + 0.914), ny);
+    ctx.stroke();
+    ctx.strokeStyle = "#f5f7fa";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mx(-0.914), ny - 3.5);
+    ctx.lineTo(mx(COURT_W + 0.914), ny - 3.5);
+    ctx.stroke();
+    ctx.fillStyle = "#20262d";
+    [mx(-0.914), mx(COURT_W + 0.914)].forEach(function (px) {
+      ctx.beginPath();
+      ctx.arc(px, ny, 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  // ---------- 획 그리기 ----------
+  function arrowHead(from, to) {
+    var a = Math.atan2(to.y - from.y, to.x - from.x);
+    var L = 15;
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - L * Math.cos(a - 0.45), to.y - L * Math.sin(a - 0.45));
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - L * Math.cos(a + 0.45), to.y - L * Math.sin(a + 0.45));
+    ctx.stroke();
+  }
+
+  var TEXT_FONT = "bold 26px 'Malgun Gothic', sans-serif";
+  var SHOT_LABELS = { serve: "서브", "return": "리턴", volley: "발리", smash: "스매시", rally: "랠리" };
+  var SHOT_DASH = { serve: [], "return": [11, 7], volley: [12, 5, 3, 5], smash: [], rally: [3, 7] };
+
+  function drawStroke(s) {
+    if (s.tool === "text") {
+      ctx.font = TEXT_FONT;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = 5;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(0,0,0,.65)";
+      ctx.strokeText(s.text, s.x, s.y);
+      ctx.fillStyle = s.color;
+      ctx.fillText(s.text, s.x, s.y);
+      return;
+    }
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = LINE_W;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (s.tool === "pen") {
+      if (s.pts.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(s.pts[0].x, s.pts[0].y);
+      for (var i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+      ctx.stroke();
+    } else {
+      var lbl = SHOT_LABELS[s.tool];
+      if (lbl) ctx.setLineDash(SHOT_DASH[s.tool]);
+      if (s.tool === "smash") ctx.lineWidth = 5.5;
+      ctx.beginPath();
+      ctx.moveTo(s.from.x, s.from.y);
+      ctx.lineTo(s.to.x, s.to.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (s.tool === "arrow" || lbl) arrowHead(s.from, s.to);
+      if (lbl) {
+        // 화살표 중간에 이름표
+        var cx = (s.from.x + s.to.x) / 2;
+        var cy = (s.from.y + s.to.y) / 2;
+        ctx.font = "bold 14px 'Malgun Gothic', sans-serif";
+        var bw = ctx.measureText(lbl).width + 16;
+        var bh = 23;
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, 11);
+        else ctx.rect(cx - bw / 2, cy - bh / 2, bw, bh);
+        ctx.fill();
+        ctx.fillStyle = "#14181d";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(lbl, cx, cy + 1);
+      }
+    }
+  }
+
+  // 마우스를 올린 오브젝트의 하이라이트(초록 글로우)
+  function drawStrokeGlow(s) {
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (s.tool === "text") {
+      ctx.font = TEXT_FONT;
+      var w = ctx.measureText(s.text).width;
+      ctx.strokeStyle = "#2eff9e";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(s.x - w / 2 - 9, s.y - 22, w + 18, 44, 10);
+      else ctx.rect(s.x - w / 2 - 9, s.y - 22, w + 18, 44);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return;
+    }
+    ctx.strokeStyle = "rgba(46,255,158,.5)";
+    ctx.lineWidth = LINE_W + 8;
+    ctx.beginPath();
+    if (s.tool === "pen") {
+      ctx.moveTo(s.pts[0].x, s.pts[0].y);
+      for (var i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+    } else {
+      ctx.moveTo(s.from.x, s.from.y);
+      ctx.lineTo(s.to.x, s.to.y);
+    }
+    ctx.stroke();
+    // 끝점 핸들 표시 (잡아서 그 끝만 수정 가능, 지우개 모드 제외)
+    if (tool !== "eraser" && s.tool !== "pen") {
+      ["from", "to"].forEach(function (end) {
+        var q = s[end];
+        var active = hoverEnd && hoverEnd.s === s && hoverEnd.end === end;
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, active ? 9 : 7, 0, Math.PI * 2);
+        ctx.fillStyle = active ? "#2eff9e" : "rgba(46,255,158,.85)";
+        ctx.fill();
+        ctx.strokeStyle = "#14181d";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+  }
+
+  // ---------- 마커 그리기 ----------
+  function drawMarkers() {
+    markers.forEach(function (m) {
+      if (!m.on) return;
+      var hovered = (m === hoverMarker || m === dragTarget);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,.4)";
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 2;
+      if (m.color === "ball") {
+        ctx.fillStyle = "#d9f24f";
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(m.x - m.r * 0.9, m.y, m.r * 1.25, -0.55, 0.55);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(m.x + m.r * 0.9, m.y, m.r * 1.25, Math.PI - 0.55, Math.PI + 0.55);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = m.color;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        var fs = m.label.length > 1 ? 0.72 : 0.95;
+        ctx.font = "bold " + Math.round(m.r * fs) + "px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(m.label, m.x, m.y + 1);
+      }
+      // 마우스를 올리면 선택 표시(초록 링)
+      if (hovered) {
+        ctx.strokeStyle = "#2eff9e";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r + 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+
+  // ---------- 샷 각도(부채꼴) + 이등분선 ----------
+  function drawAngleCone() {
+    var ball = null;
+    for (var i = 0; i < markers.length; i++) {
+      if (markers[i].color === "ball") { ball = markers[i]; break; }
+    }
+    if (!ball || !ball.on) return;
+
+    var netY = my(COURT_L / 2);
+    // 공이 네트 바로 위에 있으면 방향이 애매하므로 표시 생략
+    if (Math.abs(ball.y - netY) < 5) return;
+
+    var ballBottom = ball.y > netY;
+    var sx1 = (mode === "singles") ? 1.37 : 0;
+    var sx2 = (mode === "singles") ? 9.60 : COURT_W;
+    var x1 = mx(sx1), x2 = mx(sx2);
+    var yFar = ballBottom ? my(0) : my(COURT_L);
+
+    // 상대 코트(네트 반대편) 네 꼭짓점을 공에서 본 각도로 정렬
+    var pts = [
+      { x: x1, y: netY }, { x: x2, y: netY },
+      { x: x1, y: yFar }, { x: x2, y: yFar }
+    ].map(function (c) {
+      return { x: c.x, y: c.y, a: Math.atan2(c.y - ball.y, c.x - ball.x) };
+    });
+    pts.sort(function (p, q) { return p.a - q.a; });
+    if (pts[3].a - pts[0].a > Math.PI) { // ±180도 경계 보정
+      pts.forEach(function (p) { if (p.a < 0) p.a += Math.PI * 2; });
+      pts.sort(function (p, q) { return p.a - q.a; });
+    }
+
+    // 짧은 앵글샷까지 포함한 전체 가능 범위(저확률) — 연하게
+    ctx.fillStyle = "rgba(255,225,77,.07)";
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    pts.forEach(function (p) { ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    ctx.fill();
+
+    // 확률 높은 샷 범위 — 공이 네트에 가까울수록 앵글이 열림
+    // (서비스라인 6.4m 밖: 베이스라인 코너 기준 / 네트 앞: 최대 각도)
+    var dm = Math.abs(ball.y - netY) / S;
+    var k = Math.max(0, Math.min(1, 1 - dm / 6.4));
+    var yT = yFar + (netY - yFar) * k;   // 사이드라인 위 극단 지점(코너→네트쪽으로 이동)
+    var main = [
+      { x: x1, y: yT },   { x: x2, y: yT },
+      { x: x1, y: yFar }, { x: x2, y: yFar }
+    ].map(function (c) {
+      return { x: c.x, y: c.y, a: Math.atan2(c.y - ball.y, c.x - ball.x) };
+    });
+    main.sort(function (p, q) { return p.a - q.a; });
+    if (main[3].a - main[0].a > Math.PI) {
+      main.forEach(function (p) { if (p.a < 0) p.a += Math.PI * 2; });
+      main.sort(function (p, q) { return p.a - q.a; });
+    }
+    ctx.fillStyle = "rgba(255,225,77,.18)";
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    main.forEach(function (p) { ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    ctx.fill();
+
+    // 양쪽 극단 각도 라인
+    ctx.strokeStyle = "rgba(255,225,77,.8)";
+    ctx.lineWidth = 2;
+    [main[0], main[3]].forEach(function (p) {
+      ctx.beginPath();
+      ctx.moveTo(ball.x, ball.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    });
+
+    // 이등분선(수비수가 서야 할 기준선)
+    var mid = (main[0].a + main[3].a) / 2;
+    var dx = Math.cos(mid), dy = Math.sin(mid);
+    if (Math.abs(dy) < 1e-6) return;
+    var t = (yFar - ball.y) / dy;   // 베이스라인까지만
+    ctx.strokeStyle = "#2eff9e";
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    ctx.lineTo(ball.x + dx * t, ball.y + dy * t);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function render() {
+    drawCourt();
+    if (showAngle) drawAngleCone();
+    strokes.forEach(function (s) {
+      if (s === hoverStroke) drawStrokeGlow(s);
+      drawStroke(s);
+    });
+    if (tempStroke) drawStroke(tempStroke);
+    drawMarkers();
+  }
+
+  // ---------- 입력 ----------
+  function getPos(e) {
+    var r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top) * (H / r.height)
+    };
+  }
+
+  function hitMarker(p) {
+    for (var i = markers.length - 1; i >= 0; i--) {
+      var m = markers[i];
+      if (!m.on) continue;
+      var dx = p.x - m.x, dy = p.y - m.y;
+      if (dx * dx + dy * dy <= (m.r + 10) * (m.r + 10)) return m;
+    }
+    return null;
+  }
+
+  function distToSeg(p, a, b) {
+    var vx = b.x - a.x, vy = b.y - a.y;
+    var len2 = vx * vx + vy * vy;
+    var t = len2 ? ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    var dx = p.x - (a.x + t * vx), dy = p.y - (a.y + t * vy);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function strokeHitTest(s, p, TH) {
+    if (s.tool === "text") {
+      ctx.font = TEXT_FONT;
+      var hw = ctx.measureText(s.text).width / 2;
+      return Math.abs(p.x - s.x) < hw + TH && Math.abs(p.y - s.y) < 13 + TH;
+    }
+    if (s.tool === "pen") {
+      for (var i = 1; i < s.pts.length; i++) {
+        if (distToSeg(p, s.pts[i - 1], s.pts[i]) < TH) return true;
+      }
+      return false;
+    }
+    return distToSeg(p, s.from, s.to) < TH;
+  }
+
+  function strokeAt(p) {
+    for (var i = strokes.length - 1; i >= 0; i--) {
+      if (strokeHitTest(strokes[i], p, 14)) return strokes[i];
+    }
+    return null;
+  }
+
+  // 화살표/직선류 선의 끝점 찾기 (끝점만 드래그해서 수정)
+  function endpointAt(p) {
+    var TH2 = 13 * 13;
+    for (var i = strokes.length - 1; i >= 0; i--) {
+      var s = strokes[i];
+      if (s.tool === "pen" || s.tool === "text") continue;
+      var ends = ["to", "from"];
+      for (var j = 0; j < ends.length; j++) {
+        var q = s[ends[j]];
+        var dx = p.x - q.x, dy = p.y - q.y;
+        if (dx * dx + dy * dy <= TH2) return { s: s, end: ends[j] };
+      }
+    }
+    return null;
+  }
+
+  function eraseAt(p) {
+    var before = strokes.length;
+    strokes = strokes.filter(function (s) { return !strokeHitTest(s, p, 18); });
+    if (strokes.length !== before) {
+      hoverStroke = null;
+      render();
+      persist();
+    }
+  }
+
+  function updateCursor() {
+    if (dragTarget || dragEnd) canvas.style.cursor = "grabbing";
+    else if (hoverMarker || hoverEnd) canvas.style.cursor = "grab";
+    else if (tool === "move") canvas.style.cursor = "default";
+    else if (tool === "text") canvas.style.cursor = "text";
+    else canvas.style.cursor = "crosshair";
+  }
+
+  canvas.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    var p = getPos(e);
+
+    // 지우개를 제외한 모든 도구에서, 선수/공 위에서 누르면 바로 이동
+    if (tool !== "eraser") {
+      var m = hitMarker(p);
+      if (m) {
+        dragTarget = m;
+        hoverMarker = m;
+        updateCursor();
+        render();
+        return;
+      }
+    }
+    // 지우개를 제외한 모든 도구에서, 선 끝점 위에서 누르면 바로 수정
+    if (tool !== "eraser") {
+      var he = endpointAt(p);
+      if (he) {
+        dragEnd = he;
+        hoverEnd = he;
+        hoverStroke = he.s;
+        updateCursor();
+        render();
+        return;
+      }
+    }
+    if (tool === "move") return;
+    if (tool === "eraser") {
+      erasing = true;
+      eraseAt(p);
+      return;
+    }
+    if (tool === "text") {
+      var txt = prompt("코트에 적을 내용을 입력하세요");
+      if (txt && txt.trim()) {
+        strokes.push({ tool: "text", color: color, x: p.x, y: p.y, text: txt.trim() });
+        persist();
+      }
+      render();
+      return;
+    }
+    if (tool === "pen") {
+      tempStroke = { tool: "pen", color: color, pts: [p] };
+    } else {
+      tempStroke = { tool: tool, color: color, from: p, to: p };
+    }
+    render();
+  });
+
+  canvas.addEventListener("pointermove", function (e) {
+    var p = getPos(e);
+
+    if (dragEnd) {
+      e.preventDefault();
+      dragEnd.s[dragEnd.end] = {
+        x: Math.max(0, Math.min(W, p.x)),
+        y: Math.max(0, Math.min(H, p.y))
+      };
+      render();
+      return;
+    }
+    if (dragTarget) {
+      e.preventDefault();
+      dragTarget.x = Math.max(0, Math.min(W, p.x));
+      dragTarget.y = Math.max(0, Math.min(H, p.y));
+      render();
+      return;
+    }
+    if (erasing) { e.preventDefault(); eraseAt(p); return; }
+    if (tempStroke) {
+      e.preventDefault();
+      if (tempStroke.tool === "pen") tempStroke.pts.push(p);
+      else tempStroke.to = p;
+      render();
+      return;
+    }
+    // 아무것도 안 누른 상태: 마우스 올리면 선택 표시
+    var m = (tool !== "eraser") ? hitMarker(p) : null;
+    var he = null, hs = null;
+    if (!m && tool !== "eraser") he = endpointAt(p);
+    if (!m) {
+      if (he) hs = he.s;
+      else if (tool === "move" || tool === "eraser") hs = strokeAt(p);
+    }
+    var sameEnd = (!he && !hoverEnd) ||
+      (he && hoverEnd && he.s === hoverEnd.s && he.end === hoverEnd.end);
+    if (m !== hoverMarker || hs !== hoverStroke || !sameEnd) {
+      hoverMarker = m;
+      hoverStroke = hs;
+      hoverEnd = he;
+      updateCursor();
+      render();
+    }
+  });
+
+  function finishPointer() {
+    if (tempStroke) {
+      var ok = tempStroke.tool === "pen"
+        ? tempStroke.pts.length > 1
+        : Math.abs(tempStroke.from.x - tempStroke.to.x) +
+          Math.abs(tempStroke.from.y - tempStroke.to.y) > 6;
+      if (ok) { strokes.push(tempStroke); persist(); }
+      tempStroke = null;
+      render();
+    }
+    if (dragTarget) {
+      dragTarget = null;
+      persist();
+      render();
+    }
+    if (dragEnd) {
+      dragEnd = null;
+      persist();
+      render();
+    }
+    erasing = false;
+    updateCursor();
+  }
+  canvas.addEventListener("pointerup", finishPointer);
+  canvas.addEventListener("pointercancel", finishPointer);
+  canvas.addEventListener("pointerleave", function () {
+    if ((hoverMarker || hoverStroke || hoverEnd) && !dragTarget && !dragEnd) {
+      hoverMarker = null;
+      hoverStroke = null;
+      hoverEnd = null;
+      updateCursor();
+      render();
+    }
+  });
+
+  // ---------- 툴바 ----------
+  document.querySelectorAll(".tool").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".tool").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      tool = btn.dataset.tool;
+      hoverMarker = null;
+      hoverStroke = null;
+      hoverEnd = null;
+      updateCursor();
+      render();
+    });
+  });
+
+  document.querySelectorAll(".swatch").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".swatch").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      color = btn.dataset.color;
+    });
+  });
+
+  document.getElementById("undoBtn").addEventListener("click", function () {
+    strokes.pop();
+    render();
+    persist();
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", function () {
+    strokes = [];
+    render();
+    persist();
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    markers = defaultMarkers(mode);
+    render();
+    persist();
+  });
+
+  var modeBtn = document.getElementById("modeBtn");
+  function updateModeBtn() {
+    modeBtn.textContent = (mode === "doubles") ? "👥 복식 ⇄ 단식" : "👤 단식 ⇄ 복식";
+  }
+  modeBtn.addEventListener("click", function () {
+    mode = (mode === "doubles") ? "singles" : "doubles";
+    markers = defaultMarkers(mode);
+    updateModeBtn();
+    render();
+    persist();
+  });
+
+  var angleBtn = document.getElementById("angleBtn");
+  angleBtn.addEventListener("click", function () {
+    showAngle = !showAngle;
+    angleBtn.classList.toggle("active", showAngle);
+    render();
+  });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var d = new Date();
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    var tabName = boards[activeIdx].name.replace(/[\\/:*?"<>|]/g, "").trim() || "전략";
+    var name = "테니스_" + tabName + "_" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+               "_" + pad(d.getHours()) + pad(d.getMinutes()) + ".png";
+    var a = document.createElement("a");
+    a.download = name;
+    a.href = canvas.toDataURL("image/png");
+    a.click();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      strokes.pop();
+      render();
+      persist();
+    }
+  });
+
+  // ---------- 시작 ----------
+  loadStore();
+  activateBoard(activeIdx);
+})();
+</script>
+</body>
+</html>
