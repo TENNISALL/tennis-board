@@ -110,18 +110,28 @@
     box-shadow: 0 6px 28px rgba(0,0,0,.45);
     touch-action: none;
   }
-  /* 좁은 화면(휴대폰)에서는 툴바를 위로 */
+  /* 좁은 화면(휴대폰): 보드를 상단에 크게, 도구는 아래로 */
   @media (max-width: 640px) {
-    #app { flex-direction: column; }
+    header { padding: 6px 12px 2px; }
+    header span { display: none; }
+    #app { flex-direction: column; gap: 8px; padding: 0 8px 8px; }
+    #boardArea { order: 1; }
     #toolbar {
+      order: 2;
       flex: 0 0 auto;
+      max-height: 30vh;
+      overflow-y: auto;
       flex-direction: row;
       flex-wrap: wrap;
       align-items: center;
+      gap: 8px;
+      padding: 2px;
     }
-    .group { flex-direction: row; flex-wrap: wrap; }
+    .group { flex-direction: row; flex-wrap: wrap; gap: 6px; }
     .group-label { display: none; }
-    button { padding: 7px 9px; font-size: 12.5px; }
+    button { padding: 10px 12px; font-size: 13.5px; }
+    .swatch { width: 38px; height: 38px; }
+    .tab { padding: 8px 12px; }
   }
 </style>
 </head>
@@ -207,6 +217,11 @@
   var hoverEnd = null;
   var erasing = false;
   var showAngle = false;
+
+  // 터치 기기: 판정 범위를 넉넉하게
+  var COARSE = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  var MARKER_SLACK = COARSE ? 16 : 10;
+  var END_R = COARSE ? 19 : 13;
 
   var PLAYER_R = 0.55 * S;
   var BALL_R = 0.34 * S;
@@ -451,6 +466,16 @@
         ctx.textBaseline = "middle";
         ctx.fillText(lbl, cx, cy + 1);
       }
+      // 터치 기기: 끝점 위치를 항상 표시 (잡아서 끌면 수정)
+      if (COARSE && tool !== "eraser") {
+        ["from", "to"].forEach(function (end) {
+          var q = s[end];
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, 5.5, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(46,255,158,.65)";
+          ctx.fill();
+        });
+      }
     }
   }
 
@@ -664,7 +689,7 @@
       var m = markers[i];
       if (!m.on) continue;
       var dx = p.x - m.x, dy = p.y - m.y;
-      if (dx * dx + dy * dy <= (m.r + 10) * (m.r + 10)) return m;
+      if (dx * dx + dy * dy <= (m.r + MARKER_SLACK) * (m.r + MARKER_SLACK)) return m;
     }
     return null;
   }
@@ -702,7 +727,7 @@
 
   // 화살표/직선류 선의 끝점 찾기 (끝점만 드래그해서 수정)
   function endpointAt(p) {
-    var TH2 = 13 * 13;
+    var TH2 = END_R * END_R;
     for (var i = strokes.length - 1; i >= 0; i--) {
       var s = strokes[i];
       if (s.tool === "pen" || s.tool === "text") continue;
