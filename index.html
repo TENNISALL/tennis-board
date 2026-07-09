@@ -217,6 +217,9 @@
   var hoverEnd = null;
   var erasing = false;
   var showAngle = false;
+  var angleLine = null;       // 이등분선 현재 위치 {ball, from, to}
+  var hoverAngleLine = false;
+  var dragAngleLine = null;   // {ball, dx, dy}
 
   // 터치 기기: 판정 범위를 넉넉하게
   var COARSE = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
@@ -296,6 +299,7 @@
     hoverMarker = null;
     hoverStroke = null;
     hoverEnd = null;
+    hoverAngleLine = false;
     updateModeBtn();
     renderTabs();
     render();
@@ -579,6 +583,7 @@
 
   // ---------- 샷 각도(부채꼴) + 이등분선 ----------
   function drawAngleCone() {
+    angleLine = null;
     var ball = null;
     for (var i = 0; i < markers.length; i++) {
       if (markers[i].color === "ball") { ball = markers[i]; break; }
@@ -654,14 +659,40 @@
     var dx = Math.cos(mid), dy = Math.sin(mid);
     if (Math.abs(dy) < 1e-6) return;
     var t = (yFar - ball.y) / dy;   // 베이스라인까지만
+    angleLine = {
+      ball: ball,
+      from: { x: ball.x, y: ball.y },
+      to: { x: ball.x + dx * t, y: ball.y + dy * t }
+    };
+    var act = hoverAngleLine || dragAngleLine;
+    // 마우스 올림/드래그 중이면 글로우 하이라이트
+    if (act) {
+      ctx.strokeStyle = "rgba(46,255,158,.35)";
+      ctx.lineWidth = 12;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(angleLine.from.x, angleLine.from.y);
+      ctx.lineTo(angleLine.to.x, angleLine.to.y);
+      ctx.stroke();
+    }
     ctx.strokeStyle = "#2eff9e";
     ctx.lineWidth = 2.5;
     ctx.setLineDash([8, 6]);
     ctx.beginPath();
-    ctx.moveTo(ball.x, ball.y);
-    ctx.lineTo(ball.x + dx * t, ball.y + dy * t);
+    ctx.moveTo(angleLine.from.x, angleLine.from.y);
+    ctx.lineTo(angleLine.to.x, angleLine.to.y);
     ctx.stroke();
     ctx.setLineDash([]);
+    // 양 끝 노드 (잡아서 끌면 공과 함께 이동)
+    [angleLine.from, angleLine.to].forEach(function (q) {
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, act ? 8 : 5.5, 0, Math.PI * 2);
+      ctx.fillStyle = act ? "#2eff9e" : "rgba(46,255,158,.7)";
+      ctx.fill();
+      ctx.strokeStyle = "#14181d";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
   }
 
   function render() {
@@ -741,6 +772,13 @@
     return null;
   }
 
+  // 샷 각도 이등분선 위인지 판정 (양 끝 노드 포함)
+  function angleLineHit(p) {
+    if (!showAngle || !angleLine) return false;
+    var r = COARSE ? 16 : 11;
+    return distToSeg(p, angleLine.from, angleLine.to) < r;
+  }
+
   function eraseAt(p) {
     var before = strokes.length;
     strokes = strokes.filter(function (s) { return !strokeHitTest(s, p, 18); });
@@ -752,8 +790,8 @@
   }
 
   function updateCursor() {
-    if (dragTarget || dragEnd) canvas.style.cursor = "grabbing";
-    else if (hoverMarker || hoverEnd) canvas.style.cursor = "grab";
+    if (dragTarget || dragEnd || dragAngleLine) canvas.style.cursor = "grabbing";
+    else if (hoverMarker || hoverEnd || hoverAngleLine) canvas.style.cursor = "grab";
     else if (tool === "move") canvas.style.cursor = "default";
     else if (tool === "text") canvas.style.cursor = "text";
     else canvas.style.cursor = "crosshair";
@@ -787,6 +825,18 @@
         return;
       }
     }
+    // 샷 각도 이등분선: 잡아 끌면 공과 함께 이동
+    if (tool !== "eraser" && angleLineHit(p)) {
+      dragAngleLine = {
+        ball: angleLine.ball,
+        dx: p.x - angleLine.ball.x,
+        dy: p.y - angleLine.ball.y
+      };
+      hoverAngleLine = true;
+      updateCursor();
+      render();
+      return;
+    }
     if (tool === "move") return;
     if (tool === "eraser") {
       erasing = true;
@@ -813,6 +863,13 @@
   canvas.addEventListener("pointermove", function (e) {
     var p = getPos(e);
 
+    if (dragAngleLine) {
+      e.preventDefault();
+      dragAngleLine.ball.x = Math.max(0, Math.min(W, p.x - dragAngleLine.dx));
+      dragAngleLine.ball.y = Math.max(0, Math.min(H, p.y - dragAngleLine.dy));
+      render();
+      return;
+    }
     if (dragEnd) {
       e.preventDefault();
       dragEnd.s[dragEnd.end] = {
@@ -839,18 +896,20 @@
     }
     // 아무것도 안 누른 상태: 마우스 올리면 선택 표시
     var m = (tool !== "eraser") ? hitMarker(p) : null;
-    var he = null, hs = null;
+    var he = null, hs = null, hal = false;
     if (!m && tool !== "eraser") he = endpointAt(p);
     if (!m) {
       if (he) hs = he.s;
       else if (tool === "move" || tool === "eraser") hs = strokeAt(p);
     }
+    if (!m && !he && !hs && tool !== "eraser") hal = angleLineHit(p);
     var sameEnd = (!he && !hoverEnd) ||
       (he && hoverEnd && he.s === hoverEnd.s && he.end === hoverEnd.end);
-    if (m !== hoverMarker || hs !== hoverStroke || !sameEnd) {
+    if (m !== hoverMarker || hs !== hoverStroke || !sameEnd || hal !== hoverAngleLine) {
       hoverMarker = m;
       hoverStroke = hs;
       hoverEnd = he;
+      hoverAngleLine = hal;
       updateCursor();
       render();
     }
@@ -876,16 +935,23 @@
       persist();
       render();
     }
+    if (dragAngleLine) {
+      dragAngleLine = null;
+      persist();
+      render();
+    }
     erasing = false;
     updateCursor();
   }
   canvas.addEventListener("pointerup", finishPointer);
   canvas.addEventListener("pointercancel", finishPointer);
   canvas.addEventListener("pointerleave", function () {
-    if ((hoverMarker || hoverStroke || hoverEnd) && !dragTarget && !dragEnd) {
+    if ((hoverMarker || hoverStroke || hoverEnd || hoverAngleLine) &&
+        !dragTarget && !dragEnd && !dragAngleLine) {
       hoverMarker = null;
       hoverStroke = null;
       hoverEnd = null;
+      hoverAngleLine = false;
       updateCursor();
       render();
     }
@@ -900,6 +966,7 @@
       hoverMarker = null;
       hoverStroke = null;
       hoverEnd = null;
+      hoverAngleLine = false;
       updateCursor();
       render();
     });
@@ -947,6 +1014,11 @@
   angleBtn.addEventListener("click", function () {
     showAngle = !showAngle;
     angleBtn.classList.toggle("active", showAngle);
+    if (!showAngle) {
+      angleLine = null;
+      hoverAngleLine = false;
+      dragAngleLine = null;
+    }
     render();
   });
 
