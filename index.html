@@ -217,9 +217,10 @@
   var hoverEnd = null;
   var erasing = false;
   var showAngle = false;
-  var angleLine = null;       // 이등분선 현재 위치 {ball, from, to}
+  var angleLine = null;       // 기준선 현재 위치 {ball, from, to}
   var hoverAngleLine = false;
-  var dragAngleLine = null;   // {ball, dx, dy}
+  var dragAngleLine = false;  // 기준선 드래그 중
+  var angleAimA = null;       // 사용자가 옮긴 기준선 각도 (null = 이등분선)
 
   // 터치 기기: 판정 범위를 넉넉하게
   var COARSE = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
@@ -654,9 +655,17 @@
       ctx.stroke();
     });
 
-    // 이등분선(수비수가 서야 할 기준선)
+    // 기준선: 기본은 이등분선, 좌우로 드래그해 옮길 수 있음 (공은 고정)
     var mid = (main[0].a + main[3].a) / 2;
-    var dx = Math.cos(mid), dy = Math.sin(mid);
+    var aim = mid;
+    if (angleAimA !== null) {
+      aim = angleAimA;
+      // 각도를 부채꼴 범위 기준으로 정규화한 뒤 범위 안으로 제한
+      if (aim < main[0].a - Math.PI) aim += Math.PI * 2;
+      if (aim > main[3].a + Math.PI) aim -= Math.PI * 2;
+      aim = Math.max(main[0].a, Math.min(main[3].a, aim));
+    }
+    var dx = Math.cos(aim), dy = Math.sin(aim);
     if (Math.abs(dy) < 1e-6) return;
     var t = (yFar - ball.y) / dy;   // 베이스라인까지만
     angleLine = {
@@ -683,7 +692,7 @@
     ctx.lineTo(angleLine.to.x, angleLine.to.y);
     ctx.stroke();
     ctx.setLineDash([]);
-    // 양 끝 노드 (잡아서 끌면 공과 함께 이동)
+    // 양 끝 노드 (잡아서 좌우로 끌면 기준선이 회전)
     [angleLine.from, angleLine.to].forEach(function (q) {
       ctx.beginPath();
       ctx.arc(q.x, q.y, act ? 8 : 5.5, 0, Math.PI * 2);
@@ -692,6 +701,23 @@
       ctx.strokeStyle = "#14181d";
       ctx.lineWidth = 2;
       ctx.stroke();
+    });
+    // 기준선 양쪽의 각도(실시간 재계산)
+    var degL = (aim - main[0].a) * 180 / Math.PI;
+    var degR = (main[3].a - aim) * 180 / Math.PI;
+    ctx.font = "bold 17px 'Malgun Gothic', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    [[(main[0].a + aim) / 2, degL], [(aim + main[3].a) / 2, degR]].forEach(function (pair) {
+      var qx = ball.x + Math.cos(pair[0]) * 95;
+      var qy = ball.y + Math.sin(pair[0]) * 95;
+      var txt = Math.round(pair[1]) + "°";
+      ctx.lineWidth = 4;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(0,0,0,.6)";
+      ctx.strokeText(txt, qx, qy);
+      ctx.fillStyle = "#ffe14d";
+      ctx.fillText(txt, qx, qy);
     });
   }
 
@@ -825,13 +851,9 @@
         return;
       }
     }
-    // 샷 각도 이등분선: 잡아 끌면 공과 함께 이동
+    // 샷 각도 기준선: 잡아서 좌우로 끌면 기준선만 회전 (공은 고정)
     if (tool !== "eraser" && angleLineHit(p)) {
-      dragAngleLine = {
-        ball: angleLine.ball,
-        dx: p.x - angleLine.ball.x,
-        dy: p.y - angleLine.ball.y
-      };
+      dragAngleLine = true;
       hoverAngleLine = true;
       updateCursor();
       render();
@@ -865,8 +887,10 @@
 
     if (dragAngleLine) {
       e.preventDefault();
-      dragAngleLine.ball.x = Math.max(0, Math.min(W, p.x - dragAngleLine.dx));
-      dragAngleLine.ball.y = Math.max(0, Math.min(H, p.y - dragAngleLine.dy));
+      if (angleLine) {
+        var b = angleLine.ball;
+        angleAimA = Math.atan2(p.y - b.y, p.x - b.x);
+      }
       render();
       return;
     }
@@ -936,8 +960,7 @@
       render();
     }
     if (dragAngleLine) {
-      dragAngleLine = null;
-      persist();
+      dragAngleLine = false;
       render();
     }
     erasing = false;
@@ -945,6 +968,14 @@
   }
   canvas.addEventListener("pointerup", finishPointer);
   canvas.addEventListener("pointercancel", finishPointer);
+
+  // 기준선 더블클릭 → 이등분선으로 원위치
+  canvas.addEventListener("dblclick", function (e) {
+    if (showAngle && angleAimA !== null && angleLineHit(getPos(e))) {
+      angleAimA = null;
+      render();
+    }
+  });
   canvas.addEventListener("pointerleave", function () {
     if ((hoverMarker || hoverStroke || hoverEnd || hoverAngleLine) &&
         !dragTarget && !dragEnd && !dragAngleLine) {
@@ -1017,7 +1048,8 @@
     if (!showAngle) {
       angleLine = null;
       hoverAngleLine = false;
-      dragAngleLine = null;
+      dragAngleLine = false;
+      angleAimA = null;
     }
     render();
   });
