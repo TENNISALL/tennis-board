@@ -96,6 +96,7 @@
   .tab .x:hover { color: #ff8a8a; }
   #addTab { padding: 6px 11px; font-weight: 700; }
   #canvasWrap {
+    position: relative;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
@@ -109,6 +110,23 @@
     border-radius: 10px;
     box-shadow: 0 6px 28px rgba(0,0,0,.45);
     touch-action: none;
+  }
+  #textInput {
+    position: absolute;
+    z-index: 5;
+    margin: 0;
+    padding: 0 3px;
+    border: none;
+    outline: 1px dashed #2eff9e;
+    background: rgba(20,24,29,.55);
+    color: #fff;
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    font-weight: bold;
+    text-align: center;
+    white-space: pre;
+    transform: translate(-50%, -50%);
+    caret-color: #2eff9e;
+    box-sizing: content-box;
   }
   /* 좁은 화면(휴대폰): 보드를 상단에 크게, 도구는 아래로 */
   @media (max-width: 640px) {
@@ -195,6 +213,7 @@
   var H = Math.round((COURT_L + END_M * 2) * S);
 
   var canvas = document.getElementById("board");
+  var canvasWrap = document.getElementById("canvasWrap");
   var ctx = canvas.getContext("2d");
   canvas.width = W;
   canvas.height = H;
@@ -221,6 +240,9 @@
   var hoverAngleLine = false;
   var dragAngleLine = false;  // 기준선 드래그 중
   var angleAimA = null;       // 사용자가 옮긴 기준선 각도 (null = 이등분선)
+  var dragText = null;        // 텍스트 이동 중 {s, dx, dy}
+  var textInput = null;       // 인라인 입력창 element
+  var editing = null;         // {x, y, color, existing}
 
   // 터치 기기: 판정 범위를 넉넉하게
   var COARSE = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
@@ -292,6 +314,7 @@
   }
 
   function activateBoard(i) {
+    cancelTextEdit();
     activeIdx = i;
     var b = boards[i];
     strokes = b.strokes || [];
@@ -725,11 +748,93 @@
     drawCourt();
     if (showAngle) drawAngleCone();
     strokes.forEach(function (s) {
+      if (editing && editing.existing === s) return; // 편집 중인 텍스트는 입력창으로 대체
       if (s === hoverStroke) drawStrokeGlow(s);
       drawStroke(s);
     });
     if (tempStroke) drawStroke(tempStroke);
     drawMarkers();
+  }
+
+  // ---------- 텍스트 인라인 입력/편집 ----------
+  function textAt(p) {
+    for (var i = strokes.length - 1; i >= 0; i--) {
+      var s = strokes[i];
+      if (s.tool !== "text") continue;
+      ctx.font = TEXT_FONT;
+      var hw = ctx.measureText(s.text).width / 2;
+      if (Math.abs(p.x - s.x) < hw + 6 && Math.abs(p.y - s.y) < 20) return s;
+    }
+    return null;
+  }
+
+  function positionTextInput() {
+    if (!textInput || !editing) return;
+    var r = canvas.getBoundingClientRect();
+    var wrapR = canvasWrap.getBoundingClientRect();
+    var sx = r.width / W, sy = r.height / H;
+    ctx.font = TEXT_FONT;
+    var wInternal = ctx.measureText(textInput.value || " ").width;
+    textInput.style.fontSize = Math.max(12, Math.round(26 * sy)) + "px";
+    textInput.style.left = ((r.left - wrapR.left) + editing.x * sx) + "px";
+    textInput.style.top = ((r.top - wrapR.top) + editing.y * sy) + "px";
+    textInput.style.width = (wInternal * sx + 6) + "px";
+    textInput.style.color = editing.color;
+  }
+
+  function startTextEdit(x, y, existing) {
+    finishTextEdit();
+    editing = {
+      x: x, y: y,
+      color: existing ? existing.color : color,
+      existing: existing || null
+    };
+    render();
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.id = "textInput";
+    inp.value = existing ? existing.text : "";
+    inp.setAttribute("autocomplete", "off");
+    inp.setAttribute("autocorrect", "off");
+    canvasWrap.appendChild(inp);
+    textInput = inp;
+    positionTextInput();
+    inp.focus();
+    try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {}
+    inp.addEventListener("input", positionTextInput);
+    inp.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); finishTextEdit(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancelTextEdit(); }
+    });
+    inp.addEventListener("blur", finishTextEdit);
+  }
+
+  function cleanupTextInput() {
+    var el = textInput;
+    textInput = null;
+    editing = null;
+    if (el) { el.removeEventListener("blur", finishTextEdit); el.remove(); }
+  }
+
+  function finishTextEdit() {
+    if (!textInput || !editing) return;
+    var val = textInput.value.trim();
+    var ex = editing.existing;
+    if (ex) {
+      if (val) ex.text = val;
+      else { var i = strokes.indexOf(ex); if (i >= 0) strokes.splice(i, 1); }
+    } else if (val) {
+      strokes.push({ tool: "text", color: editing.color, x: editing.x, y: editing.y, text: val });
+    }
+    cleanupTextInput();
+    persist();
+    render();
+  }
+
+  function cancelTextEdit() {
+    cleanupTextInput();
+    render();
   }
 
   // ---------- 입력 ----------
@@ -816,8 +921,9 @@
   }
 
   function updateCursor() {
-    if (dragTarget || dragEnd || dragAngleLine) canvas.style.cursor = "grabbing";
+    if (dragTarget || dragEnd || dragAngleLine || dragText) canvas.style.cursor = "grabbing";
     else if (hoverMarker || hoverEnd || hoverAngleLine) canvas.style.cursor = "grab";
+    else if (tool === "move" && hoverStroke && hoverStroke.tool === "text") canvas.style.cursor = "grab";
     else if (tool === "move") canvas.style.cursor = "default";
     else if (tool === "text") canvas.style.cursor = "text";
     else canvas.style.cursor = "crosshair";
@@ -825,8 +931,17 @@
 
   canvas.addEventListener("pointerdown", function (e) {
     e.preventDefault();
-    canvas.setPointerCapture(e.pointerId);
     var p = getPos(e);
+
+    // 텍스트 도구: 기존 글자를 누르면 편집, 빈 곳을 누르면 새로 입력
+    if (tool === "text") {
+      var th = textAt(p);
+      if (th) startTextEdit(th.x, th.y, th);
+      else startTextEdit(p.x, p.y, null);
+      return;
+    }
+
+    canvas.setPointerCapture(e.pointerId);
 
     // 지우개를 제외한 모든 도구에서, 선수/공 위에서 누르면 바로 이동
     if (tool !== "eraser") {
@@ -859,19 +974,20 @@
       render();
       return;
     }
-    if (tool === "move") return;
+    if (tool === "move") {
+      // 텍스트는 통째로 끌어서 이동
+      var td = textAt(p);
+      if (td) {
+        dragText = { s: td, dx: p.x - td.x, dy: p.y - td.y };
+        hoverStroke = td;
+        updateCursor();
+        render();
+      }
+      return;
+    }
     if (tool === "eraser") {
       erasing = true;
       eraseAt(p);
-      return;
-    }
-    if (tool === "text") {
-      var txt = prompt("코트에 적을 내용을 입력하세요");
-      if (txt && txt.trim()) {
-        strokes.push({ tool: "text", color: color, x: p.x, y: p.y, text: txt.trim() });
-        persist();
-      }
-      render();
       return;
     }
     if (tool === "pen") {
@@ -907,6 +1023,13 @@
       e.preventDefault();
       dragTarget.x = Math.max(0, Math.min(W, p.x));
       dragTarget.y = Math.max(0, Math.min(H, p.y));
+      render();
+      return;
+    }
+    if (dragText) {
+      e.preventDefault();
+      dragText.s.x = Math.max(0, Math.min(W, p.x - dragText.dx));
+      dragText.s.y = Math.max(0, Math.min(H, p.y - dragText.dy));
       render();
       return;
     }
@@ -959,6 +1082,11 @@
       persist();
       render();
     }
+    if (dragText) {
+      dragText = null;
+      persist();
+      render();
+    }
     if (dragAngleLine) {
       dragAngleLine = false;
       render();
@@ -969,9 +1097,14 @@
   canvas.addEventListener("pointerup", finishPointer);
   canvas.addEventListener("pointercancel", finishPointer);
 
-  // 기준선 더블클릭 → 이등분선으로 원위치
+  // 더블클릭: 텍스트 편집 / 기준선 원위치
   canvas.addEventListener("dblclick", function (e) {
-    if (showAngle && angleAimA !== null && angleLineHit(getPos(e))) {
+    var p = getPos(e);
+    if (tool !== "eraser") {
+      var th = textAt(p);
+      if (th) { startTextEdit(th.x, th.y, th); return; }
+    }
+    if (showAngle && angleAimA !== null && angleLineHit(p)) {
       angleAimA = null;
       render();
     }
@@ -1074,6 +1207,9 @@
       persist();
     }
   });
+
+  // 화면 크기가 바뀌면 편집 중인 입력창 위치도 따라감
+  window.addEventListener("resize", positionTextInput);
 
   // ---------- 시작 ----------
   loadStore();
